@@ -14,6 +14,7 @@ use gio::prelude::*;
 
 use std::env;
 use gtk::BoxBuilder;
+use wooting_analog_common::DeviceType;
 
 struct SharedState {
     pub vendor_id: u16,
@@ -26,6 +27,8 @@ struct SharedState {
     pub device_name: [u8; 20],
     /// Unique device ID, which should be generated using `generate_device_id`
     pub device_id: u64,
+    
+    pub device_type: DeviceType,
 
     pub device_connected: bool,
     pub dirty_device_info: bool,

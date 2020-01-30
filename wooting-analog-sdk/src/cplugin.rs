@@ -2,7 +2,7 @@ use ffi_support::FfiStr;
 use libloading::{Library, Symbol};
 use log::*;
 use std::collections::HashMap;
-use std::os::raw::{c_float, c_int, c_uint, c_ushort};
+use std::os::raw::{c_float, c_int, c_uint, c_ushort, c_void};
 use wooting_analog_common::*;
 use wooting_analog_plugin_dev::*;
 
@@ -67,39 +67,78 @@ macro_rules! lib_wrap_option {
     };
 }
 
+const CPLUGIN_ABI_VERSION: u32 = 0;
+
 pub struct CPlugin {
     lib: Library,
     //funcs: HashMap<&'static str, Option<Symbol>>
 }
 
 impl CPlugin {
-    pub fn new(lib: Library) -> CPlugin {
-        CPlugin {
+    pub fn new(lib: Library) -> SDKResult<CPlugin> {
+        unsafe {
+            if let Some(ver) = lib.get::<*mut u32>(b"ANALOG_SDK_PLUGIN_ABI_VERSION").ok() {
+                let v = **ver;
+                info!("Got cplugin abi: {:?}", v);
+                if v != CPLUGIN_ABI_VERSION {
+                    error!("CPlugin ABI version does not match! Given: {}, Expected: {}", v, CPLUGIN_ABI_VERSION);
+                    return Err(WootingAnalogResult::IncompatibleVersion).into()
+                }
+            }
+        }
+
+        Ok(CPlugin {
             lib,
             //funcs: HashMap::new()
-        }
+        }).into()
     }
 
     lib_wrap_option! {
         //c_name has to be over here due to it not being part of the Plugin trait
+        fn _initialise(data: *mut c_void, callback: extern "C" fn(*mut c_void, DeviceEventType, *mut DeviceInfo)) -> i32;
         fn _name() -> FfiStr<'static>;
 
         fn _read_full_buffer(code_buffer: *const c_ushort, analog_buffer: *const c_float, len: c_uint, device: DeviceID) -> c_int;
-        fn _device_info(buffer: *mut DeviceInfoPointer, len: c_uint) -> c_int;
+        fn _device_info(buffer: *mut *mut DeviceInfo, len: c_uint) -> c_int;
+    }
+}
+
+extern "C" fn call_closure(data: *mut c_void, event: DeviceEventType, device_raw: *mut DeviceInfo) {
+    debug!("Got into the callclosure");
+    unsafe {
+        if data.is_null() {
+            error!("We got a null data pointer in call_closure!");
+            return;
+        }
+
+        let device = Box::from_raw(device_raw);
+
+        let callback_ptr =
+            Box::from_raw(data as *mut Box<dyn Fn(DeviceEventType, &DeviceInfo) + Send>);
+
+        (*callback_ptr)(event, &device);
+        //Throw it back into raw to prevent it being dropped so the callback can be called multiple times
+        Box::into_raw(callback_ptr);
+        //We also want to convert this back to a pointer as we want the C Plugin to be in control and aware of
+        //when this memory is being dropped
+        Box::into_raw(device);
     }
 }
 
 impl Plugin for CPlugin {
     fn name(&mut self) -> SDKResult<&'static str> {
-        /*let s = self.c_name();
-        let c_str = unsafe {
-            assert!(!s.is_null());
-
-            CStr::from_ptr(s)
-        };
-
-        c_str.to_str().unwrap()*/
         self._name().0.map(|s| s.as_str()).into()
+    }
+
+    fn initialise(
+        &mut self,
+        callback: Box<dyn Fn(DeviceEventType, &DeviceInfo) + Send>,
+    ) -> SDKResult<u32> {
+        let data = Box::into_raw(Box::new(callback));
+        self._initialise(data as *mut _, call_closure)
+            .0
+            .map(|res| res as u32)
+            .into()
     }
 
     fn read_full_buffer(
@@ -137,16 +176,35 @@ impl Plugin for CPlugin {
         Ok(analog_data).into()
     }
 
-    fn device_info(&mut self, buffer: &mut [DeviceInfoPointer]) -> SDKResult<c_int> {
-        self._device_info(buffer.as_mut_ptr(), buffer.len() as c_uint)
+    fn device_info(&mut self) -> SDKResult<Vec<DeviceInfo>> {
+        let mut device_infos: Vec<*mut DeviceInfo> = vec![std::ptr::null_mut(); 10];
+
+        match self
+            ._device_info(device_infos.as_mut_ptr(), device_infos.len() as c_uint)
+            .0
+            .map(|no| no as u32)
+        {
+            Ok(num) => unsafe {
+                device_infos.truncate(num as usize);
+                let devices = device_infos.drain(..).map(|dev| {
+                    //Box it to get our instance back and then clone it as we want to leave the freeing
+                    //up to the plugin to do. This is so we can try and somewhat keep up with C's semantics
+                    //as it wouldn't really be expected for this function to free it up as it is not what
+                    //allocated it in the first place
+                    let boxed = Box::from_raw(dev);
+                    let device = boxed.as_ref().clone();
+                    Box::into_raw(boxed);
+                    device
+                }).collect();
+                Ok(devices).into()
+            }
+            Err(e) => Err(e).into(),
+        }
     }
 
     lib_wrap! {
-        fn initialise() -> WootingAnalogResult;
         fn is_initialised() -> bool;
         fn unload();
-        fn set_device_event_cb(cb: extern fn(DeviceEventType, DeviceInfoPointer)) -> WootingAnalogResult;
-        fn clear_device_event_cb() -> WootingAnalogResult;
     }
     lib_wrap_option! {
         fn read_analog(code: u16, device: DeviceID) -> f32;

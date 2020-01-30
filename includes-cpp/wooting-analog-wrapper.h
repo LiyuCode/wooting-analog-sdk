@@ -20,27 +20,21 @@ WootingAnalogResult wooting_analog_clear_device_event_cb();
 /// Fills up the given `buffer`(that has length `len`) with pointers to the DeviceInfo structs for all connected devices (as many that can fit in the buffer)
 ///
 /// # Notes
-/// There is no guarenteed lifetime of the DeviceInfo structs given back, so if you wish to use any data from them, please copy it.
+/// * The memory of the returned structs will only be kept until the next call of `get_connected_devices_info`, so if you wish to use any data from them, please copy it or ensure you don't reuse references to old memory after calling `get_connected_devices_info` again.
 ///
 /// # Expected Returns
 /// Similar to wooting_analog_read_analog, the errors and returns are encoded into one type. Values >=0 indicate the number of items filled into the buffer, with `<0` being of type WootingAnalogResult
 /// * `ret>=0`: The number of connected devices that have been filled into the buffer
 /// * `WootingAnalogResult::UnInitialized`: Indicates that the AnalogSDK hasn't been initialised
-int wooting_analog_get_connected_devices_info(WootingAnalog_DeviceInfo **buffer,
+int wooting_analog_get_connected_devices_info(WootingAnalog_DeviceInfo_FFI **buffer,
                                               unsigned int len);
 
 /// Initialises the Analog SDK, this needs to be successfully called before any other functions
 /// of the SDK can be called
 ///
-/// # Notes
-/// The SDK will use the semi-colon separated list of directories in the environment variable `WOOTING_ANALOG_SDK_PLUGINS_PATH` to search for Plugins.
-/// Plugins must have the extension `.dll` on Windows, `.so` on Linux and `.dylib` on MacOS
-///
 /// # Expected Returns
-/// * `Ok`: Meaning the SDK initialised successfully (currently also means that there is at least one plugin initialised with at least one device connected)
-/// * `NoDevices`: Meaning the SDK initialised successfully, but no devices are connected
+/// * `ret>=0`: Meaning the SDK initialised successfully and the number indicates the number of devices that were found on plugin initialisation
 /// * `NoPlugins`: Meaning that either no plugins were found or some were found but none were successfully initialised
-/// * `FunctionNotFound`: Indicates that the SDK was not found, either it is not installed or it hasn't been added to the PATH
 WootingAnalogResult wooting_analog_initialise();
 
 /// Returns a bool indicating if the Analog SDK has been initialised
@@ -90,10 +84,11 @@ float wooting_analog_read_analog_device(unsigned short code,
 /// value for they key at index 0 of code_buffer, is at index 0 of analog_buffer.
 ///
 /// # Notes
-/// `len` is the length of code_buffer & analog_buffer, if the buffers are of unequal length, then pass the lower of the two, as it is the max amount of
+/// * `len` is the length of code_buffer & analog_buffer, if the buffers are of unequal length, then pass the lower of the two, as it is the max amount of
 /// key & analog value pairs that can be filled in.
-/// The codes that are filled into the `code_buffer` are of the KeycodeType set with wooting_analog_set_mode
-/// If two devices have the same key pressed, the greater value will be given
+/// * The codes that are filled into the `code_buffer` are of the KeycodeType set with wooting_analog_set_mode
+/// * If two devices have the same key pressed, the greater value will be given
+/// * When a key is released it will be returned with an analog value of 0.0f in the first read_full_buffer call after the key has been released
 ///
 /// # Expected Returns
 /// Similar to other functions like `wooting_analog_device_info`, the return value encodes both errors and the return value we want.
@@ -110,9 +105,10 @@ int wooting_analog_read_full_buffer(unsigned short *code_buffer,
 /// value for they key at index 0 of code_buffer, is at index 0 of analog_buffer.
 ///
 /// # Notes
-/// `len` is the length of code_buffer & analog_buffer, if the buffers are of unequal length, then pass the lower of the two, as it is the max amount of
+/// * `len` is the length of code_buffer & analog_buffer, if the buffers are of unequal length, then pass the lower of the two, as it is the max amount of
 /// key & analog value pairs that can be filled in.
-/// The codes that are filled into the `code_buffer` are of the KeycodeType set with wooting_analog_set_mode
+/// * The codes that are filled into the `code_buffer` are of the KeycodeType set with wooting_analog_set_mode
+/// * When a key is released it will be returned with an analog value of 0.0f in the first read_full_buffer call after the key has been released
 ///
 /// # Expected Returns
 /// Similar to other functions like `wooting_analog_device_info`, the return value encodes both errors and the return value we want.
@@ -129,13 +125,13 @@ int wooting_analog_read_full_buffer_device(unsigned short *code_buffer,
 /// The callback gets given the type of event `DeviceEventType` and a pointer to the DeviceInfo struct that the event applies to
 ///
 /// # Notes
-/// There's no guarentee to the lifetime of the DeviceInfo pointer given during the callback, if it's a Disconnected event, it's likely the memory
-/// will be freed immediately after the callback, so it's best to copy any data you wish to use.
+/// * You must copy the DeviceInfo struct or its data if you wish to use it after the callback has completed, as the memory will be freed straight after
+/// * The execution of the callback is performed in a separate thread so it is fine to put time consuming code and further SDK calls inside your callback
 ///
 /// # Expected Returns
 /// * `Ok`: The callback was set successfully
 /// * `UnInitialized`: The SDK is not initialised
-WootingAnalogResult wooting_analog_set_device_event_cb(void (*cb)(WootingAnalog_DeviceEventType, WootingAnalog_DeviceInfo*));
+WootingAnalogResult wooting_analog_set_device_event_cb(void (*cb)(WootingAnalog_DeviceEventType, WootingAnalog_DeviceInfo_FFI*));
 
 /// Sets the type of Keycodes the Analog SDK will receive (in `read_analog`) and output (in `read_full_buffer`).
 ///

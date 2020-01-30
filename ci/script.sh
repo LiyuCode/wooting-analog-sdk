@@ -7,7 +7,7 @@ main() {
     local cargo=cargo
     local test_command=test
     if [ $TRAVIS_OS_NAME = linux ] || [ $TRAVIS_OS_NAME = osx ]; then
-      cargo=cross
+      #cargo=cross
       test_command=test-flow
     fi
 
@@ -19,7 +19,9 @@ main() {
     if [ ! -z $DISABLE_TESTS ]; then
         return
     fi
-    
+
+    ls wooting-analog-sdk/test_c_plugin/build
+
     cargo make $test_command -e CARGO_COMMAND=$cargo -- --target $TARGET
     #cross test --target $TARGET
     #cross test --target $TARGET --release

@@ -23,7 +23,7 @@ main() {
             lib_ext="a"
             lib_prefix="lib"
             shared_lib_ext="dylib"
-            cargo=cross
+            cargo=cargo
             ;;
         windows)
             stage=$(mktemp -d)
@@ -45,6 +45,7 @@ main() {
     mkdir $stage/plugins/includes-cpp
 
     mkdir $stage/wrapper
+    mkdir $stage/wrapper/lib
     mkdir $stage/wrapper/includes
     mkdir $stage/wrapper/includes-cpp
     mkdir $stage/wrapper/sdk
@@ -69,10 +70,8 @@ main() {
 
     # Copy wrapper items
     cp target/$TARGET/release/${lib_prefix}wooting_analog_wrapper.$shared_lib_ext $stage/wrapper/
+    cp target/$TARGET/release/${lib_prefix}wooting_analog_wrapper.$lib_ext $stage/wrapper/lib/
     cp target/$TARGET/release/${lib_prefix}wooting_analog_sdk.$shared_lib_ext $stage/wrapper/sdk/
-    ls wooting-analog-test-plugin/target
-    ls wooting-analog-test-plugin/target/release
-    ls wooting-analog-test-plugin/target/$TARGET/release
     cp wooting-analog-test-plugin/target/$TARGET/release/${lib_prefix}wooting_analog_test_plugin.$shared_lib_ext $stage/wrapper/sdk/
 
     ## Copy c headers
